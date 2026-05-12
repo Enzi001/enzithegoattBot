@@ -15,6 +15,14 @@ import {
 import { getAIResponse } from "@/lib/gemini";
 import { sendMessage } from "@/lib/messenger";
 import { sendTelegramNotification } from "@/lib/notifications";
+import {
+  isHandoffActive,
+  isMessageProcessed,
+  saveConversationMessage,
+  saveLead,
+  saveProcessedMessage,
+  setHandoffActive,
+} from "@/lib/supabase";
 
 interface MessagingEvent {
   sender: { id: string };
@@ -274,12 +282,14 @@ async function triggerHandoff(senderId: string, userText: string): Promise<void>
 
   updateLeadDraft(senderId, { serviceInterest: "human contact" });
   disableBotForUser(senderId);
+  await setHandoffActive(senderId, true, "human contact");
 
   console.log("HANDOFF_TRIGGERED", { senderId, userMessage: userText, timestamp });
   console.log("BOT_DISABLED_FOR_USER", senderId);
 
   appendToHistory(senderId, { role: "user", content: userText });
   appendToHistory(senderId, { role: "assistant", content: HANDOFF_CONFIRMATION });
+  await saveConversationMessage(senderId, "assistant", HANDOFF_CONFIRMATION);
 
   try {
     await sendMessage(senderId, HANDOFF_CONFIRMATION);
@@ -294,10 +304,12 @@ async function triggerHandoff(senderId: string, userText: string): Promise<void>
 
 async function resumeAi(senderId: string, userText: string): Promise<void> {
   enableBotForUser(senderId);
+  await setHandoffActive(senderId, false);
   console.log("AI_RESUMED", senderId);
 
   appendToHistory(senderId, { role: "user", content: userText });
   appendToHistory(senderId, { role: "assistant", content: RESUME_CONFIRMATION });
+  await saveConversationMessage(senderId, "assistant", RESUME_CONFIRMATION);
 
   try {
     await sendMessage(senderId, RESUME_CONFIRMATION);
@@ -377,18 +389,28 @@ async function processWebhookBody(body: WebhookBody): Promise<void> {
       }
 
       const messageId = event.message.mid;
-      if (hasProcessedMessage(messageId)) {
+      const alreadyProcessed =
+        hasProcessedMessage(messageId) || (await isMessageProcessed(messageId));
+
+      if (alreadyProcessed) {
         console.log("DUPLICATE_MESSAGE_SKIPPED", messageId);
         continue;
       }
-      markMessageProcessed(messageId);
 
       const senderId = event.sender.id;
       const userText = event.message.text;
 
-      console.log("MESSAGE_RECEIVED", { senderId, messageId, userText });
+      markMessageProcessed(messageId);
+      await saveProcessedMessage(messageId, senderId);
 
-      if (isHandoffEnabled(senderId)) {
+      console.log("MESSAGE_RECEIVED", { senderId, messageId, userText });
+      appendToHistory(senderId, { role: "user", content: userText });
+      await saveConversationMessage(senderId, "user", userText);
+
+      const handoffActive =
+        isHandoffEnabled(senderId) || (await isHandoffActive(senderId));
+
+      if (handoffActive) {
         if (hasResumeIntent(userText)) {
           await resumeAi(senderId, userText);
           continue;
@@ -407,10 +429,11 @@ async function processWebhookBody(body: WebhookBody): Promise<void> {
       if (phoneNumber) {
         const lead = buildLead(senderId, phoneNumber, userText);
         markLead(lead);
+        await saveLead(lead, handoffActive);
         console.log("NEW SALES LEAD:", JSON.stringify(lead, null, 2));
 
-        appendToHistory(senderId, { role: "user", content: userText });
         appendToHistory(senderId, { role: "assistant", content: LEAD_CONFIRMATION });
+        await saveConversationMessage(senderId, "assistant", LEAD_CONFIRMATION);
 
         try {
           await sendMessage(senderId, LEAD_CONFIRMATION);
@@ -426,8 +449,8 @@ async function processWebhookBody(body: WebhookBody): Promise<void> {
       }
 
       const reply = await buildReply(senderId, userText);
-      appendToHistory(senderId, { role: "user", content: userText });
       appendToHistory(senderId, { role: "assistant", content: reply });
+      await saveConversationMessage(senderId, "assistant", reply);
 
       try {
         await sendMessage(senderId, reply);

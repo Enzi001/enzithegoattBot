@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enableBotForUser } from "@/lib/store";
+import { setHandoffActive } from "@/lib/supabase";
 
 interface ResetBody {
   senderId?: string;
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   enableBotForUser(body.senderId);
+  await setHandoffActive(body.senderId, false);
   console.log(`[Admin] Bot reset for sender ${body.senderId}`);
 
   return NextResponse.json({ status: "ok", senderId: body.senderId });
