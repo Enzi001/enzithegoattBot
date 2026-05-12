@@ -498,9 +498,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   console.log("WEBHOOK_POST_RECEIVED");
   const body: WebhookBody = await request.json();
 
-  processWebhookBody(body).catch((error) => {
+  try {
+    await processWebhookBody(body);
+  } catch (error) {
     console.error("[Webhook] Background processing failed:", error);
-  });
+  }
 
   return NextResponse.json({ status: "ok" }, { status: 200 });
 }
