@@ -358,18 +358,26 @@ async function buildReply(senderId: string, text: string): Promise<string> {
   }
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<Response> {
   const { searchParams } = request.nextUrl;
   const mode = searchParams.get("hub.mode");
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
+  const expectedToken = process.env.VERIFY_TOKEN;
 
-  if (mode === "subscribe" && token === process.env.VERIFY_TOKEN && challenge) {
-    console.log("[Webhook] Verification successful");
-    return new NextResponse(challenge, { status: 200 });
+  console.log("[Webhook] Received verify token:", token);
+  console.log("[Webhook] Env verify token exists:", Boolean(expectedToken));
+
+  if (mode === "subscribe" && token === expectedToken && challenge) {
+    console.log("[Webhook] Verification success");
+    return new Response(challenge, { status: 200 });
   }
 
-  console.warn("[Webhook] Verification failed - token mismatch or missing params");
+  console.warn("[Webhook] Verification fail", {
+    mode,
+    hasChallenge: Boolean(challenge),
+    tokenMatches: token === expectedToken,
+  });
   return NextResponse.json({ error: "Verification failed" }, { status: 403 });
 }
 
