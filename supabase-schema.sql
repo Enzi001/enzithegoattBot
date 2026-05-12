@@ -22,12 +22,59 @@ create table if not exists leads (
 create table if not exists handoff_users (
   sender_id text primary key,
   active boolean not null default true,
-  service_interest text,
-  updated_at timestamptz not null default now()
+  created_at timestamptz not null default now()
 );
 
 create table if not exists processed_messages (
-  message_id text primary key,
+  message_mid text primary key,
   sender_id text not null,
   created_at timestamptz not null default now()
 );
+
+alter table conversations enable row level security;
+alter table leads enable row level security;
+alter table handoff_users enable row level security;
+alter table processed_messages enable row level security;
+
+drop policy if exists "messenger insert conversations" on conversations;
+create policy "messenger insert conversations"
+  on conversations for insert
+  to anon
+  with check (true);
+
+drop policy if exists "messenger insert leads" on leads;
+create policy "messenger insert leads"
+  on leads for insert
+  to anon
+  with check (true);
+
+drop policy if exists "messenger read handoff users" on handoff_users;
+create policy "messenger read handoff users"
+  on handoff_users for select
+  to anon
+  using (true);
+
+drop policy if exists "messenger upsert handoff users" on handoff_users;
+create policy "messenger upsert handoff users"
+  on handoff_users for insert
+  to anon
+  with check (true);
+
+drop policy if exists "messenger update handoff users" on handoff_users;
+create policy "messenger update handoff users"
+  on handoff_users for update
+  to anon
+  using (true)
+  with check (true);
+
+drop policy if exists "messenger read processed messages" on processed_messages;
+create policy "messenger read processed messages"
+  on processed_messages for select
+  to anon
+  using (true);
+
+drop policy if exists "messenger insert processed messages" on processed_messages;
+create policy "messenger insert processed messages"
+  on processed_messages for insert
+  to anon
+  with check (true);

@@ -290,7 +290,7 @@ async function triggerHandoff(senderId: string, userText: string): Promise<void>
 
   updateLeadDraft(senderId, { serviceInterest: "human contact" });
   disableBotForUser(senderId);
-  await setHandoffActive(senderId, true, "human contact");
+  await setHandoffActive(senderId, true);
 
   console.log("HANDOFF_TRIGGERED", { senderId, userMessage: userText, timestamp });
   console.log("BOT_DISABLED_FOR_USER", senderId);

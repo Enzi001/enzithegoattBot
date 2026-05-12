@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { Lead, ServiceInterest } from "./store";
+import { Lead } from "./store";
 
 function normalizeSupabaseUrl(url: string): string {
   return url.trim().replace(/\/rest\/v1\/?$/i, "").replace(/\/+$/g, "");
@@ -27,6 +27,11 @@ function logSupabaseError(action: string, error: unknown): void {
   console.error("SUPABASE_QUERY_FAILED", action, error);
 }
 
+function logSupabaseInsertError(action: string, error: unknown): void {
+  console.error("SUPABASE_INSERT_FAILED", action, error);
+  logSupabaseError(action, error);
+}
+
 export async function saveConversationMessage(
   senderId: string,
   role: "user" | "assistant",
@@ -42,14 +47,15 @@ export async function saveConversationMessage(
     });
 
     if (error) {
-      logSupabaseError("conversations.insert", error);
+      logSupabaseInsertError("conversations.insert", error);
       return;
     }
 
     logSupabaseSuccess("conversations.insert");
+    console.log("CONVERSATION_SAVED", { senderId, role });
     console.log("MESSAGE_SAVED", { senderId, role });
   } catch (error) {
-    logSupabaseError("conversations.insert", error);
+    logSupabaseInsertError("conversations.insert", error);
   }
 }
 
@@ -72,14 +78,14 @@ export async function saveLead(
     });
 
     if (error) {
-      logSupabaseError("leads.insert", error);
+      logSupabaseInsertError("leads.insert", error);
       return;
     }
 
     logSupabaseSuccess("leads.insert");
     console.log("LEAD_SAVED", { senderId: lead.senderId, phoneNumber: lead.phoneNumber });
   } catch (error) {
-    logSupabaseError("leads.insert", error);
+    logSupabaseInsertError("leads.insert", error);
   }
 }
 
@@ -89,8 +95,8 @@ export async function isMessageProcessed(messageId: string): Promise<boolean> {
   try {
     const { data, error } = await supabase
       .from("processed_messages")
-      .select("message_id")
-      .eq("message_id", messageId)
+      .select("message_mid")
+      .eq("message_mid", messageId)
       .maybeSingle();
 
     if (error) {
@@ -114,18 +120,19 @@ export async function saveProcessedMessage(
 
   try {
     const { error } = await supabase.from("processed_messages").insert({
-      message_id: messageId,
+      message_mid: messageId,
       sender_id: senderId,
     });
 
     if (error) {
-      logSupabaseError("processed_messages.insert", error);
+      logSupabaseInsertError("processed_messages.insert", error);
       return;
     }
 
     logSupabaseSuccess("processed_messages.insert");
+    console.log("PROCESSED_MESSAGE_SAVED", { messageId, senderId });
   } catch (error) {
-    logSupabaseError("processed_messages.insert", error);
+    logSupabaseInsertError("processed_messages.insert", error);
   }
 }
 
@@ -155,8 +162,7 @@ export async function isHandoffActive(senderId: string): Promise<boolean> {
 
 export async function setHandoffActive(
   senderId: string,
-  active: boolean,
-  serviceInterest?: ServiceInterest
+  active: boolean
 ): Promise<void> {
   if (!supabase) return;
 
@@ -165,19 +171,18 @@ export async function setHandoffActive(
       {
         sender_id: senderId,
         active,
-        service_interest: serviceInterest,
-        updated_at: new Date().toISOString(),
       },
       { onConflict: "sender_id" }
     );
 
     if (error) {
-      logSupabaseError("handoff_users.upsert", error);
+      logSupabaseInsertError("handoff_users.upsert", error);
       return;
     }
 
     logSupabaseSuccess("handoff_users.upsert");
+    console.log("HANDOFF_USER_SAVED", { senderId, active });
   } catch (error) {
-    logSupabaseError("handoff_users.upsert", error);
+    logSupabaseInsertError("handoff_users.upsert", error);
   }
 }
