@@ -51,6 +51,8 @@ interface WebhookBody {
 
 const WELCOME_MESSAGE =
   "Сайн байна уу 👋 Та stream хийлгэх, marketing үйлчилгээ авах, үнийн санал авах эсвэл бүтээгдэхүүн/үйлчилгээний талаар мэдээлэл авах гэж байна уу?";
+const FALLBACK_GREETING_MESSAGE =
+  "Сайн байна уу 👋 Та stream хийлгэх, marketing үйлчилгээ авах, content/reel хийлгэх, үнийн санал авах эсвэл ажилтантай холбогдох гэж байна уу?";
 const REDIRECT_MESSAGE =
   "Энэ чат нь stream, marketing үйлчилгээ, үнийн санал болон бүтээгдэхүүн/үйлчилгээний мэдээлэл өгөх зориулалттай. Та аль үйлчилгээний талаар асуух вэ?";
 const PRICE_MESSAGE =
@@ -137,6 +139,12 @@ function detectServiceIntent(text: string): ServiceInterest | null {
 }
 
 function isGreeting(text: string): boolean {
+  return /^(сайн|сайн уу|сайн байна уу|hi|hello|hey|yo|hi there)[\s!.?]*$/i.test(
+    text.trim()
+  );
+}
+
+function isFallbackGreeting(text: string): boolean {
   return /^(сайн|сайн уу|сайн байна уу|hi|hello|hey|yo|hi there)[\s!.?]*$/i.test(
     text.trim()
   );
@@ -358,27 +366,27 @@ async function buildReply(senderId: string, text: string): Promise<string> {
   }
 }
 
-export async function GET(request: NextRequest): Promise<Response> {
-  const { searchParams } = request.nextUrl;
+export async function GET(request: Request): Promise<Response> {
+  const { searchParams } = new URL(request.url);
   const mode = searchParams.get("hub.mode");
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
   const expectedToken = process.env.VERIFY_TOKEN;
 
-  console.log("[Webhook] Received verify token:", token);
-  console.log("[Webhook] Env verify token exists:", Boolean(expectedToken));
+  console.log("[Webhook] received verify token:", token);
+  console.log("[Webhook] env token exists:", Boolean(expectedToken));
 
   if (mode === "subscribe" && token === expectedToken && challenge) {
-    console.log("[Webhook] Verification success");
+    console.log("[Webhook] verification success");
     return new Response(challenge, { status: 200 });
   }
 
-  console.warn("[Webhook] Verification fail", {
+  console.warn("[Webhook] verification fail", {
     mode,
     hasChallenge: Boolean(challenge),
     tokenMatches: token === expectedToken,
   });
-  return NextResponse.json({ error: "Verification failed" }, { status: 403 });
+  return Response.json({ error: "Verification failed" }, { status: 403 });
 }
 
 async function processWebhookBody(body: WebhookBody): Promise<void> {
@@ -412,8 +420,25 @@ async function processWebhookBody(body: WebhookBody): Promise<void> {
       await saveProcessedMessage(messageId, senderId);
 
       console.log("MESSAGE_RECEIVED", { senderId, messageId, userText });
+      console.log("MESSAGE_TEXT", userText);
       appendToHistory(senderId, { role: "user", content: userText });
       await saveConversationMessage(senderId, "user", userText);
+
+      if (isFallbackGreeting(userText)) {
+        appendToHistory(senderId, {
+          role: "assistant",
+          content: FALLBACK_GREETING_MESSAGE,
+        });
+        await saveConversationMessage(senderId, "assistant", FALLBACK_GREETING_MESSAGE);
+
+        try {
+          await sendMessage(senderId, FALLBACK_GREETING_MESSAGE);
+        } catch (error) {
+          console.error(`[Messenger] Failed to send greeting to ${senderId}:`, error);
+        }
+
+        continue;
+      }
 
       const handoffActive =
         isHandoffEnabled(senderId) || (await isHandoffActive(senderId));
@@ -470,6 +495,7 @@ async function processWebhookBody(body: WebhookBody): Promise<void> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  console.log("WEBHOOK_POST_RECEIVED");
   const body: WebhookBody = await request.json();
 
   processWebhookBody(body).catch((error) => {
